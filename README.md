@@ -5,17 +5,19 @@ pre-built solutions or checkpoint tags. Each lab's tasks are in `LABN.md`,
 its environment setup in `LABN-SETUP.md`. Commit at the end of each lab so
 your history shows the project growing lab by lab.
 
-**Current state: pre-refactor.** `notebook_v1.ipynb` scores transactions using the
-bundled model. It works, but it has the six classic notebook-to-production smells
-covered in Module 1 - some are marked `# SMELL`, some aren't.
+**Current state: Lab 1 complete.** The notebook's scoring behavior now lives in a
+clean `src/fraud_service/` package, with framework-free domain code, a scoring
+service, and an sklearn adapter composed by the batch entrypoint.
 
-## Lab 1 — your task
+## Run the Lab 1 batch
 
-Run the notebook top to bottom first and note the three execution-order traps.
-Then extract it into a clean `src/fraud_service/` package: `domain/`, `service/`,
-`adapters/`, wired together only in a new `src/fraud_service/batch.py` entrypoint.
-See `LAB1.md` for the full task list
-and expected output.
+```bash
+make install
+make run-batch
+```
+
+This writes `scored.csv` with one score and decision for each of the 5,000 sample
+transactions. See `LAB1.md` for the completed lab's requirements.
 
 Data and model artefacts are already provided and stay constant across every lab:
 
