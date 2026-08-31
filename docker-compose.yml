@@ -17,13 +17,7 @@ services:
       feature-cache:
         condition: service_healthy
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/ready', timeout=2)",
-        ]
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/ready', timeout=2)" ]
       interval: 10s
       timeout: 3s
       start_period: 30s
@@ -34,7 +28,7 @@ services:
   feature-cache:
     image: redis:7-alpine
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 3s
       start_period: 10s
@@ -44,7 +38,7 @@ services:
 
   loadtest:
     image: grafana/k6:0.52.0
-    profiles: ["loadtest"]
+    profiles: [ "loadtest" ]
     depends_on:
       fraud-api:
         condition: service_healthy
@@ -52,16 +46,7 @@ services:
       TARGET_URL: http://fraud-api:8000
     volumes:
       - ./scripts:/scripts:ro
-    command:
-      [
-        "run",
-        "--vus",
-        "${LOADTEST_VUS:-10}",
-        "--iterations",
-        "${LOADTEST_ITERATIONS:-500}",
-        "--summary-trend-stats=avg,min,med,max,p(90),p(95),p(99)",
-        "/scripts/loadtest.js",
-      ]
+    command: [ "run", "--vus", "${LOADTEST_VUS:-10}", "--iterations", "${LOADTEST_ITERATIONS:-500}", "--summary-trend-stats=avg,min,med,max,p(90),p(95),p(99)", "/scripts/loadtest.js" ]
     networks:
       - fraud-network
 
