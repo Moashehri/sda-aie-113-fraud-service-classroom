@@ -1,28 +1,44 @@
-# fraud-service (SDA-AIE-113 golden-thread project)
+# fraud-service
 
-We build this together, live, one lab at a time — this repo has no
-pre-built solutions or checkpoint tags. Each lab's tasks are in `LABN.md`,
-its environment setup in `LABN-SETUP.md`. Commit at the end of each lab so
-your history shows the project growing lab by lab.
+A classroom fraud-scoring service built with a clean Python `src` layout. The
+domain and service layers are framework-independent; FastAPI and scikit-learn
+are isolated at the edges.
 
-**Current state: Lab 1 complete.** The notebook's scoring behavior now lives in a
-clean `src/fraud_service/` package, with framework-free domain code, a scoring
-service, and an sklearn adapter composed by the batch entrypoint.
+## Setup and commands
 
-## Run the Lab 1 batch
+Python 3.12 or newer is required.
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 make install
-make run-batch
 ```
 
-This writes `scored.csv` with one score and decision for each of the 5,000 sample
-transactions. See `LAB1.md` for the completed lab's requirements.
+The Makefile is the operational interface:
 
-Data and model artefacts are already provided and stay constant across every lab:
+```bash
+make run        # API on http://localhost:8000
+make run-batch  # write scored.csv for all 5,000 sample rows
+make test       # unit, integration, and behavioural tests
+make lint       # Ruff lint and formatting checks
+make image      # build fraud-service:local
+```
 
-- `data/transactions_sample.csv` — 5,000 synthetic transactions (with an `is_fraud`
-  label — that column is training-only; it is not part of the serving contract).
-- `models/fraud_xgb_v3.joblib` — pre-trained pipeline bundle: `{"pipeline": ..., "version": "v3.2.0"}`.
-- `data/golden_scores_v3.csv` — this model's scores on the 5,000 rows, used from
-  Module 4 onward as the skew tripwire.
+The API exposes `POST /v1/predict`, `GET /v1/health`, and `GET /v1/ready`.
+
+## Configuration
+
+All settings use the `FRAUD_` prefix. Copy `configs/settings.example.env` to
+`.env` for local overrides. The committed example contains safe values only;
+`.env` files are ignored by Git and Docker.
+
+## Architecture
+
+- `domain/` contains entities, deterministic feature extraction, and policies.
+- `service/` coordinates use cases through framework-neutral protocols.
+- `adapters/` implements infrastructure ports, including the joblib model.
+- `api/` validates HTTP data and composes the application at startup.
+- `config.py` and `logging_setup.py` centralize operational concerns.
+
+Model artefacts in `models/` are versioned application inputs. They are not
+source code, and only the sklearn adapter knows how to load or execute them.

@@ -11,5 +11,6 @@ scored.csv
 *.egg-info/
 build/
 dist/
-.env
+*.env
+!configs/settings.example.env
 .ipynb_checkpoints/

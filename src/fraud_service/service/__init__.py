@@ -1,5 +1,6 @@
 """Application services."""
 
-from fraud_service.service.scorer import FraudScorer, Model
+from fraud_service.service.interfaces import FeatureRepo, Model
+from fraud_service.service.scorer import FraudScorer
 
-__all__ = ["FraudScorer", "Model"]
+__all__ = ["FeatureRepo", "FraudScorer", "Model"]

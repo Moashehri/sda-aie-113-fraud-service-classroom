@@ -1,42 +1,47 @@
 """Orchestration for scoring transactions."""
 
-from typing import Protocol
-
 from fraud_service.domain.entities import (
-    FraudFeatures,
-    ScoredTransaction,
+    FraudScore,
     Transaction,
     extract_features,
 )
-from fraud_service.domain.policies import BLOCK_THRESHOLD, decide
-
-
-class Model(Protocol):
-    """Port implemented by a concrete probability model adapter."""
-
-    @property
-    def version(self) -> str:
-        """Return the loaded model artefact's version."""
-        ...
-
-    def predict_probability(self, features: FraudFeatures) -> float:
-        """Return the fraud probability for one feature vector."""
-        ...
+from fraud_service.domain.policies import (
+    BLOCK_THRESHOLD,
+    REVIEW_BAND_WIDTH,
+    decide,
+)
+from fraud_service.service.interfaces import FeatureRepo, Model
 
 
 class FraudScorer:
     """Extract features, obtain a score, and apply the decision policy."""
 
-    def __init__(self, model: Model, block_threshold: float = BLOCK_THRESHOLD) -> None:
+    def __init__(
+        self,
+        model: Model,
+        block_threshold: float = BLOCK_THRESHOLD,
+        review_band_width: float = REVIEW_BAND_WIDTH,
+        feature_repo: FeatureRepo | None = None,
+    ) -> None:
         self._model = model
         self._block_threshold = block_threshold
+        self._review_band_width = review_band_width
+        self._feature_repo = feature_repo
 
-    def score(self, transaction: Transaction) -> ScoredTransaction:
-        features = extract_features(transaction)
+    def score(self, transaction: Transaction) -> FraudScore:
+        features = (
+            self._feature_repo.get_features(transaction)
+            if self._feature_repo is not None
+            else extract_features(transaction)
+        )
         probability = self._model.predict_probability(features)
-        return ScoredTransaction(
+        return FraudScore(
             transaction_id=transaction.transaction_id,
             score=probability,
-            decision=decide(probability, self._block_threshold),
+            decision=decide(
+                probability,
+                block_threshold=self._block_threshold,
+                review_band_width=self._review_band_width,
+            ),
             model_version=self._model.version,
         )

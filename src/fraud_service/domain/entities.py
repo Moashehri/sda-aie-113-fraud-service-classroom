@@ -59,13 +59,17 @@ class FraudFeatures:
 
 
 @dataclass(frozen=True, slots=True)
-class ScoredTransaction:
+class FraudScore:
     """A model score combined with the business decision."""
 
     transaction_id: str
     score: float
     decision: Decision
     model_version: str
+
+
+# Kept as a compatibility alias for code written during Lab 1.
+ScoredTransaction = FraudScore
 
 
 def extract_features(transaction: Transaction) -> FraudFeatures:
