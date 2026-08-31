@@ -16,7 +16,7 @@ rsync -a \
   --exclude scored.csv \
   ./ "$context_dir/"
 
-docker build --progress=plain --tag "$cache_image" "$context_dir" >/dev/null
+docker build --no-cache --progress=plain --tag "$cache_image" "$context_dir" >/dev/null
 printf '\n# Temporary source-only cache measurement change\n' >> "$context_dir/src/fraud_service/api/routes.py"
 
 start_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
@@ -26,8 +26,11 @@ end_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
 elapsed="$(python3 -c 'import sys; print(f"{(int(sys.argv[2]) - int(sys.argv[1])) / 1_000_000_000:.3f}")' "$start_ns" "$end_ns")"
 echo "source_changed_warm_rebuild_seconds=${elapsed}"
 
-if grep -q "pip install --no-cache-dir --prefix=/install" "$log_file" \
-  && grep -q "CACHED" "$log_file"; then
+if awk '
+  /pip install --no-cache-dir --prefix=\/install/ { dependency_step = 1; next }
+  dependency_step && /CACHED/ { cache_hit = 1 }
+  END { exit !cache_hit }
+' "$log_file"; then
   echo "dependency_layer_cache_hit=true"
 else
   echo "dependency_layer_cache_hit=not_detected"
