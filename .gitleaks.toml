@@ -1,0 +1,4 @@
+title = "fraud-service gitleaks configuration"
+
+[extend]
+useDefault = true

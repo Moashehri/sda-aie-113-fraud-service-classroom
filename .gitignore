@@ -1,16 +1,63 @@
+# Python bytecode and caches
 __pycache__/
-*.pyc
-.venv/
-venv/
+*.py[cod]
+*$py.class
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.hypothesis/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.direnv/
+
+# Testing and coverage artifacts
 htmlcov/
 .coverage
-scored.csv
-*.egg-info/
+.coverage.*
+coverage.xml
+*.cover
+.cache
+
+# Build, distribution and egg metadata
 build/
 dist/
+*.egg-info/
+*.egg
+.eggs/
+*.whl
+
+# Operational outputs and local artifacts
+scored.csv
+*.log
+
+# Environment files and secrets
 *.env
+*.env.*
+*.key
+*.pem
+*.secret
+*.pfx
+*.p12
 !configs/settings.example.env
+
+# Jupyter Notebook checkpoints
 .ipynb_checkpoints/
+
+# Operating System & IDE metadata
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+

@@ -33,6 +33,32 @@ def test_health_readiness_and_prediction_contract(client: TestClient) -> None:
     }
 
 
+def test_readiness_and_prediction_are_unavailable_before_lifespan(
+    application: FastAPI,
+) -> None:
+    unmanaged_client = TestClient(application, raise_server_exceptions=False)
+    try:
+        ready_response = unmanaged_client.get("/v1/ready")
+        assert ready_response.status_code == 503
+        assert ready_response.headers["content-type"].startswith("application/json")
+        assert ready_response.json() == {
+            "error": "Model is not ready",
+            "trace_id": ready_response.headers["x-trace-id"],
+            "details": None,
+        }
+
+        payload = json.loads((PAYLOADS / "sample.json").read_text())
+        prediction_response = unmanaged_client.post("/v1/predict", json=payload)
+        assert prediction_response.status_code == 503
+        assert prediction_response.json()["error"] == "Model is not ready"
+        assert (
+            prediction_response.json()["trace_id"]
+            == prediction_response.headers["x-trace-id"]
+        )
+    finally:
+        unmanaged_client.close()
+
+
 @pytest.mark.parametrize("payload_path", VALID_PAYLOADS, ids=lambda path: path.stem)
 def test_valid_payload_corpus_is_accepted(
     client: TestClient, payload_path: Path
@@ -69,4 +95,5 @@ def test_unhandled_error_uses_safe_envelope(
 
     assert response.status_code == 500
     assert response.json()["error"] == "Internal Server Error"
+    assert response.json()["trace_id"] == response.headers["x-trace-id"]
     assert "private implementation detail" not in response.text

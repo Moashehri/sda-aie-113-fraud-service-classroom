@@ -44,6 +44,7 @@ def _warm_up(scorer: FraudScorer) -> None:
 def _lifespan(
     settings: Settings, model_factory: ModelFactory
 ) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
+    # pyrefly: ignore [deprecated]
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         configure_logging(settings.log_level)
@@ -123,6 +124,7 @@ def create_app(
     ) -> JSONResponse:
         trace_id = getattr(request.state, "trace_id", "unknown")
         envelope = ErrorEnvelope(
+            # pyrefly: ignore [unnecessary-type-conversion]
             error=str(exc.detail),
             trace_id=trace_id,
         )

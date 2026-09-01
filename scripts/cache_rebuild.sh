@@ -27,12 +27,16 @@ elapsed="$(python3 -c 'import sys; print(f"{(int(sys.argv[2]) - int(sys.argv[1])
 echo "source_changed_warm_rebuild_seconds=${elapsed}"
 
 if awk '
-  /pip install --no-cache-dir --prefix=\/install/ { dependency_step = 1; next }
-  dependency_step && /CACHED/ { cache_hit = 1 }
+  /--no-cache-dir/ && /--prefix=\/install/ {
+    dependency_step = $1
+    if ($0 ~ /CACHED/) { cache_hit = 1 }
+    next
+  }
+  dependency_step && $1 == dependency_step && /CACHED/ { cache_hit = 1 }
   END { exit !cache_hit }
 ' "$log_file"; then
   echo "dependency_layer_cache_hit=true"
 else
-  echo "dependency_layer_cache_hit=not_detected"
+  echo "dependency_layer_cache_hit=false"
   exit 1
 fi

@@ -9,6 +9,7 @@ dependencies = [
     "joblib",
     "pandas",
     "pydantic>=2",
+    "pydantic-settings==2.15.0",
     "scikit-learn",
     "uvicorn",
 ]

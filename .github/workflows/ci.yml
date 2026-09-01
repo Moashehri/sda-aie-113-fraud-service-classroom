@@ -76,6 +76,10 @@ jobs:
             --cov-report=xml:coverage.xml \
             --cov-fail-under=80
 
+      - name: Enforce branch coverage threshold
+        run: |
+          python -c 'import xml.etree.ElementTree as ET; root=ET.parse("coverage.xml").getroot(); covered=int(root.attrib["branches-covered"]); total=int(root.attrib["branches-valid"]); rate=100*covered/total if total else 100; print(f"branch coverage: {covered}/{total} = {rate:.2f}%"); raise SystemExit(0 if rate >= 80 else 1)'
+
       - name: Run behavioural acceptance gate
         run: |
           pytest -m "behavioural and not slow" -q
@@ -88,9 +92,33 @@ jobs:
           path: coverage.xml
           if-no-files-found: ignore
 
+      - name: Upload golden-diff evidence
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        if: always()
+        with:
+          name: golden-diff-evidence
+          path: |
+            golden-diff.txt
+            golden-diff/**
+          if-no-files-found: ignore
+
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Scan repository and reachable history for secrets
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   image-smoke:
     name: image-smoke
-    needs: [lint, test]
+    needs: [lint, test, gitleaks]
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -121,7 +149,7 @@ jobs:
       - name: Smoke test container readiness and prediction contract
         run: |
           CONTAINER_NAME="fraud-smoke-${{ github.sha }}"
-          trap 'docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true' EXIT
+          trap 'status=$?; if [ "$status" -ne 0 ]; then docker logs --tail 100 "$CONTAINER_NAME" > smoke-container.log 2>&1 || true; fi; docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true; exit "$status"' EXIT
 
           docker run -d --name "$CONTAINER_NAME" -p 8000:8000 "$IMAGE_TAG"
 
@@ -163,6 +191,15 @@ jobs:
           print("Smoke prediction assertion succeeded:", response["decision"], response["fraud_probability"])
           ' "$RESPONSE"
 
+      - name: Upload smoke container logs
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        if: always()
+        with:
+          name: smoke-container-logs
+          path: smoke-container.log
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Run Trivy vulnerability scan
         uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # 0.29.0
         with:
@@ -201,9 +238,8 @@ jobs:
         run: |
           IMAGE_LOWER=$(echo "ghcr.io/${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           IMAGE_TAG="${IMAGE_LOWER}:${{ github.sha }}"
-          IMAGE_MAIN="${IMAGE_LOWER}:main"
           echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
-          echo "IMAGE_MAIN=${IMAGE_MAIN}" >> $GITHUB_ENV
+          echo "IMAGE_NAME=${IMAGE_LOWER}" >> $GITHUB_ENV
 
       - name: Download tested container image artifact
         uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
@@ -224,18 +260,24 @@ jobs:
 
       - name: Push immutable SHA tag
         run: |
-          docker push "${IMAGE_TAG}"
-
-      - name: Push main tag
-        run: |
-          docker tag "${IMAGE_TAG}" "${IMAGE_MAIN}"
-          docker push "${IMAGE_MAIN}"
+          PUSH_OUTPUT=$(docker push "${IMAGE_TAG}")
+          printf '%s\n' "$PUSH_OUTPUT"
+          DIGEST=$(printf '%s\n' "$PUSH_OUTPUT" | awk '/digest: sha256:/ { for (index = 1; index <= NF; index++) if ($index ~ /^sha256:[0-9a-f]{64}$/) { print $index; exit } }')
+          if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Registry did not return a valid immutable digest" >&2
+            exit 1
+          fi
+          echo "PUSH_DIGEST=${DIGEST}" >> "$GITHUB_ENV"
 
       - name: Capture and report immutable image digest
         id: digest
         run: |
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE_TAG}" 2>/dev/null || echo "${IMAGE_TAG}")
+          if [[ ! "${PUSH_DIGEST:-}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Immutable image digest is unavailable; refusing to report a tag" >&2
+            exit 1
+          fi
+          DIGEST="${PUSH_DIGEST}"
           echo "### Delivered Artifact Evidence" >> $GITHUB_STEP_SUMMARY
           echo "- **Image:** \`${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Digest:** \`${DIGEST}\`" >> $GITHUB_STEP_SUMMARY
-          echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
+          echo "- **Digest:** \`${IMAGE_NAME}@${DIGEST}\`" >> $GITHUB_STEP_SUMMARY
+          echo "digest=${IMAGE_NAME}@${DIGEST}" >> $GITHUB_OUTPUT

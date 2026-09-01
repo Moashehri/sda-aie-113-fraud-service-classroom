@@ -46,3 +46,20 @@ def test_transaction_can_be_created_from_a_csv_mapping() -> None:
 
     assert transaction.amount_sar == 12.5
     assert transaction.timestamp.tzinfo is not None
+
+
+def test_transaction_preserves_datetime_from_mapping() -> None:
+    timestamp = datetime(2026, 1, 1, 10, 30, tzinfo=UTC)
+
+    transaction = Transaction.from_mapping(
+        {
+            "transaction_id": "TXN-TEST-0003",
+            "amount_sar": 12.50,
+            "channel": "pos",
+            "merchant_category": "GROCERY",
+            "customer_id": "CUST-3",
+            "timestamp": timestamp,
+        }
+    )
+
+    assert transaction.timestamp is timestamp
