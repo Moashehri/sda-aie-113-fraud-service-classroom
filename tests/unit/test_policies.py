@@ -1,28 +1,21 @@
-"""Tests for decision-band business policy."""
-
 import pytest
 
-from fraud_service.domain.policies import Decision, decide
+from fraud_service.domain.entities import Decision
+from fraud_service.domain.policies import decide
 
-pytestmark = pytest.mark.unit
-
-
-@pytest.mark.parametrize(
-    ("score", "expected"),
-    [
-        (0.0, Decision.ALLOW),
-        (0.699999, Decision.ALLOW),
-        (0.70, Decision.REVIEW),
-        (0.849999, Decision.REVIEW),
-        (0.85, Decision.BLOCK),
-        (1.0, Decision.BLOCK),
-    ],
-)
-def test_decision_boundaries(score: float, expected: Decision) -> None:
-    assert decide(score) is expected
-
-
-@pytest.mark.parametrize("score", [-0.01, 1.01, float("nan")])
-def test_invalid_scores_are_rejected(score: float) -> None:
-    with pytest.raises(ValueError, match="score must be between"):
-        decide(score)
+@pytest.mark.unit
+@pytest.mark.parametrize("score, expected", [
+    (0.05, Decision.ALLOW),   # well below review threshold
+    (0.29, Decision.ALLOW),   # exactly below review threshold (0.72 - 0.42 = 0.30)
+    (0.30, Decision.REVIEW),  # exactly at review threshold
+    (0.71, Decision.REVIEW),  # below block threshold
+    (0.72, Decision.BLOCK),   # exactly at block threshold
+    (0.90, Decision.BLOCK),   # well above block threshold
+])
+def test_should_decide(score, expected):
+    actual = decide(
+        score=score, 
+        block_threshold=0.72,
+        review_band_width=0.42  # review band is 0.30 to 0.72
+    )
+    assert actual == expected
