@@ -1,0 +1,241 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run code formatting check
+        run: ruff format --check src tests
+
+      - name: Run linter
+        run: ruff check src tests
+
+      - name: Run strict type checking
+        run: mypy src/fraud_service --strict
+
+      - name: Run architecture layer contract enforcement
+        run: PYTHONPATH=src lint-imports
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          lfs: true
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run fast test suite with branch coverage gate
+        run: |
+          pytest -m "not slow" \
+            --cov=fraud_service \
+            --cov-branch \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=80
+
+      - name: Run behavioural acceptance gate
+        run: |
+          pytest -m "behavioural and not slow" -q
+
+      - name: Upload test coverage artifact
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  image-smoke:
+    name: image-smoke
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          lfs: true
+
+      - name: Configure image name and immutable tag
+        run: |
+          IMAGE_LOWER=$(echo "ghcr.io/${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_TAG="${IMAGE_LOWER}:${{ github.sha }}"
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
+          echo "IMAGE_NAME=${IMAGE_LOWER}" >> $GITHUB_ENV
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514310cfc6ee91f5d880499bca9a1a602f72 # v3.10.0
+
+      - name: Build container image with BuildKit cache
+        run: |
+          docker buildx build \
+            --file Dockerfile \
+            --tag "${IMAGE_TAG}" \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --load \
+            .
+
+      - name: Smoke test container readiness and prediction contract
+        run: |
+          CONTAINER_NAME="fraud-smoke-${{ github.sha }}"
+          trap 'docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true' EXIT
+
+          docker run -d --name "$CONTAINER_NAME" -p 8000:8000 "$IMAGE_TAG"
+
+          TIMEOUT=60
+          DEADLINE=$(( $(date +%s) + TIMEOUT ))
+          READY=false
+
+          while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+            if curl -s -f http://127.0.0.1:8000/v1/ready >/dev/null; then
+              READY=true
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$READY" != "true" ]; then
+            echo "Container failed to become ready within ${TIMEOUT}s. Recent logs:" >&2
+            docker logs --tail 50 "$CONTAINER_NAME" >&2
+            exit 1
+          fi
+
+          RESPONSE=$(curl -s -f -X POST http://127.0.0.1:8000/v1/predict \
+            -H "Content-Type: application/json" \
+            -d @payloads/sample.json)
+
+          python3 -c '
+          import json
+          import sys
+
+          payload = json.load(open("payloads/sample.json", encoding="utf-8"))
+          response = json.loads(sys.argv[1])
+          required = {"transaction_id", "fraud_probability", "decision", "model_version", "trace_id"}
+          assert required <= response.keys(), f"missing fields: {required - response.keys()}"
+          assert response["transaction_id"] == payload["transaction_id"]
+          assert 0.0 <= float(response["fraud_probability"]) <= 1.0
+          assert response["decision"] in {"allow", "review", "block"}
+          assert len(str(response["model_version"])) > 0
+          assert len(str(response["trace_id"])) > 0
+          print("Smoke prediction assertion succeeded:", response["decision"], response["fraud_probability"])
+          ' "$RESPONSE"
+
+      - name: Run Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # 0.29.0
+        with:
+          image-ref: ${{ env.IMAGE_TAG }}
+          format: "table"
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: "os,library"
+          severity: "CRITICAL,HIGH"
+
+      - name: Package tested container image artifact
+        run: |
+          mkdir -p /tmp/image-artifact
+          docker save "${IMAGE_TAG}" | gzip > /tmp/image-artifact/image.tar.gz
+
+      - name: Upload tested container image artifact
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: tested-docker-image
+          path: /tmp/image-artifact/image.tar.gz
+          retention-days: 1
+
+  publish:
+    name: publish
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [image-smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Configure image names
+        run: |
+          IMAGE_LOWER=$(echo "ghcr.io/${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_TAG="${IMAGE_LOWER}:${{ github.sha }}"
+          IMAGE_MAIN="${IMAGE_LOWER}:main"
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
+          echo "IMAGE_MAIN=${IMAGE_MAIN}" >> $GITHUB_ENV
+
+      - name: Download tested container image artifact
+        uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
+        with:
+          name: tested-docker-image
+          path: /tmp/image-artifact
+
+      - name: Load tested container image
+        run: |
+          gzip -d -c /tmp/image-artifact/image.tar.gz | docker load
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push immutable SHA tag
+        run: |
+          docker push "${IMAGE_TAG}"
+
+      - name: Push main tag
+        run: |
+          docker tag "${IMAGE_TAG}" "${IMAGE_MAIN}"
+          docker push "${IMAGE_MAIN}"
+
+      - name: Capture and report immutable image digest
+        id: digest
+        run: |
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE_TAG}" 2>/dev/null || echo "${IMAGE_TAG}")
+          echo "### Delivered Artifact Evidence" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** \`${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Digest:** \`${DIGEST}\`" >> $GITHUB_STEP_SUMMARY
+          echo "digest=${DIGEST}" >> $GITHUB_OUTPUT

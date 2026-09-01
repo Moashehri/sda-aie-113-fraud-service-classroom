@@ -22,6 +22,8 @@ test:
 lint:
 	$(PYTHON) -m ruff check src tests
 	$(PYTHON) -m ruff format --check src tests
+	$(PYTHON) -m mypy src/fraud_service --strict
+	PYTHONPATH=src lint-imports
 
 format:
 	$(PYTHON) -m ruff check --fix src tests

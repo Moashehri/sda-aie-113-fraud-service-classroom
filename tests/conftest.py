@@ -62,6 +62,7 @@ def sample_tsx() -> Transaction:
 
 
 @pytest.fixture(scope="session")
-def realmodel():
+def realmodel():  # type: ignore[no-untyped-def]
     from fraud_service.adapters.sklearn_model import SklearnModel
+
     return SklearnModel.load(MODEL_PATH)

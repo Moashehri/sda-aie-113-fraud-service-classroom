@@ -16,7 +16,7 @@ router = APIRouter(prefix="/v1")
 def get_scorer(request: Request) -> FraudScorer:
     """Return the scorer loaded during application startup."""
     scorer = getattr(request.app.state, "scorer", None)
-    if scorer is None:
+    if not isinstance(scorer, FraudScorer):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Model is not ready",

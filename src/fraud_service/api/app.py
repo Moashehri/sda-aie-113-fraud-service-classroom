@@ -3,13 +3,13 @@
 import logging
 import secrets
 import time
-from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -41,7 +41,9 @@ def _warm_up(scorer: FraudScorer) -> None:
     )
 
 
-def _lifespan(settings: Settings, model_factory: ModelFactory):
+def _lifespan(
+    settings: Settings, model_factory: ModelFactory
+) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         configure_logging(settings.log_level)
@@ -86,7 +88,9 @@ def create_app(
     application.include_router(router)
 
     @application.middleware("http")
-    async def trace_and_timing_middleware(request: Request, call_next):
+    async def trace_and_timing_middleware(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         trace_id = secrets.token_hex(8)
         request.state.trace_id = trace_id
         token = trace_id_context.set(trace_id)

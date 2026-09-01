@@ -14,7 +14,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["ruff"]
+dev = [
+    "import-linter>=2.0",
+    "mypy>=1.14.0",
+    "pytest>=8.0",
+    "pytest-cov>=6.0",
+    "ruff>=0.8.0",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -26,6 +32,34 @@ where = ["src"]
 [tool.ruff]
 target-version = "py312"
 line-length = 88
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "joblib",
+    "pandas",
+    "sklearn.*",
+]
+ignore_missing_imports = true
+
+
+
+[tool.importlinter]
+root_package = "fraud_service"
+
+[[tool.importlinter.contracts]]
+name = "Clean architecture layers"
+type = "layers"
+layers = [
+    "fraud_service.api",
+    "fraud_service.adapters",
+    "fraud_service.service",
+    "fraud_service.domain",
+]
 
 [tool.pytest.ini_options]
 addopts = "-ra"
